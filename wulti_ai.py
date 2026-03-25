@@ -1,68 +1,91 @@
-import discord
-from discord import app_commands
-import requests
-import os
+const { Client, GatewayIntentBits, REST, Routes, SlashCommandBuilder, Events } = require("discord.js");
+const fetch = require("node-fetch");
 
-TOKEN = os.getenv("TOKEN")  # Sur Replit, tu mettras ton token dans les Secrets
+// ------------------------------
+// CONFIG
+// ------------------------------
+const TOKEN = "TON_TOKEN_ICI";
+const CLIENT_ID = "TON_CLIENT_ID"; // ID de ton bot
+const API_URL = "http://127.0.0.1:8000/chat";
 
-intents = discord.Intents.default()
-intents.message_content = True
+// ------------------------------
+// CLIENT DISCORD
+// ------------------------------
+const client = new Client({
+  intents: [
+    GatewayIntentBits.Guilds,
+    GatewayIntentBits.GuildMessages,
+    GatewayIntentBits.MessageContent
+  ]
+});
 
+// ------------------------------
+// COMMANDE /ask
+// ------------------------------
+const commands = [
+  new SlashCommandBuilder()
+    .setName("ask")
+    .setDescription("Pose une question à ton IA locale")
+    .addStringOption(option =>
+      option.setName("prompt")
+        .setDescription("Ta question")
+        .setRequired(true)
+    )
+].map(cmd => cmd.toJSON());
 
-class WultiClient(discord.Client):
-    def __init__(self):
-        super().__init__(intents=intents)
-        self.tree = app_commands.CommandTree(self)
+// ------------------------------
+// DEPLOIEMENT AUTOMATIQUE DES COMMANDES
+// ------------------------------
+const rest = new REST({ version: "10" }).setToken(TOKEN);
 
-    async def setup_hook(self):
-        await self.tree.sync()
-        print("Slash commands synchronisées.")
+(async () => {
+  try {
+    console.log("🚀 Déploiement de /ask...");
+    await rest.put(
+      Routes.applicationCommands(CLIENT_ID),
+      { body: commands }
+    );
+    console.log("✅ Commande /ask prête !");
+  } catch (error) {
+    console.error(error);
+  }
+})();
 
+// ------------------------------
+// BOT READY
+// ------------------------------
+client.once(Events.ClientReady, c => {
+  console.log(`🤖 Bot connecté en tant que ${c.user.tag}`);
+});
 
-client = WultiClient()
+// ------------------------------
+// LOGIQUE DE /ask
+// ------------------------------
+client.on(Events.InteractionCreate, async interaction => {
+  if (!interaction.isChatInputCommand()) return;
 
+  if (interaction.commandName === "ask") {
+    const prompt = interaction.options.getString("prompt");
 
-def ask_ollama(prompt: str) -> str:
-    url = "http://localhost:11434/api/generate"
-    data = {
-        "model": "wulti-8b",
-        "prompt": prompt,
-        "stream": False
+    await interaction.reply("⏳ Je réfléchis...");
+
+    try {
+      const response = await fetch(API_URL, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ prompt })
+      });
+
+      const data = await response.json();
+
+      await interaction.editReply(data.response || "Erreur API");
+    } catch (err) {
+      await interaction.editReply("❌ Impossible de contacter l'API locale.");
     }
+  }
+});
 
-    try:
-        r = requests.post(url, json=data, timeout=120)
-        r.raise_for_status()
-    except Exception as e:
-        print("Erreur de connexion à Ollama :", e)
-        return "Impossible de contacter Ollama."
-
-    try:
-        j = r.json()
-        return j.get("response", "Aucune réponse d’Ollama.").strip()
-    except Exception as e:
-        print("Erreur JSON :", e)
-        return "Réponse d’Ollama illisible."
-
-
-@client.event
-async def on_ready():
-    print(f"Wulti connecté en tant que {client.user}")
-
-
-@client.tree.command(name="ia", description="Parle avec Wulti (Ollama)")
-@app_commands.describe(question="Ta question pour l'IA")
-async def ia(interaction: discord.Interaction, question: str):
-
-    print(f"[{interaction.user}] /ia {question}")
-
-    await interaction.response.send_message("Wulti réfléchit...")
-
-    response = ask_ollama(question)
-
-    print(f"Wulti → {response}")
-
-    await interaction.followup.send(response)
-
-
-client.run(TOKEN)
+// ------------------------------
+// LANCEMENT DU BOT
+// ------------------------------
+client.login(TOKEN);
